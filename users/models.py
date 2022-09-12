@@ -8,5 +8,5 @@ phone_validate = RegexValidator(regex=r'^\0\d{0,9}$',
 
 # Create your models here.
 class BookUser(AbstractUser):
-    phone_number = models.CharField(validators=phone_validate, max_length=11)
+    phone_number = models.CharField(max_length=11)
     telegram_id = models.CharField(max_length=35)

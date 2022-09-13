@@ -6,7 +6,7 @@ class Book(models.Model):
     name = models.CharField(max_length=100)
     picture = models.ImageField(upload_to='books')
     page_count = models.PositiveIntegerField()
-    description = models.TextField()
+    description = models.JSONField()
     volume_num = models.PositiveIntegerField()
     count = models.PositiveIntegerField()
     publish_date = models.DateField()

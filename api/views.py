@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.utils import timezone
 from rest_framework.generics import *
 from .serializers import *
 from .permissions import *
@@ -19,3 +20,12 @@ class UserRetrieve(RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return get_user_model().objects.all()
+
+
+class BookList(ListAPIView):
+    serializer_class = MainSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['id']
+
+    def get_queryset(self):
+        return Book.objects.all()[:1]

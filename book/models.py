@@ -33,6 +33,7 @@ class Feedback(models.Model):
     User = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='userFeedback')
     rate = models.DecimalField(max_digits=2, decimal_places=1, null=True)
     comment = models.TextField(max_length=500, null=True)
+    # created_at = models.DateTimeField(auto_now_add=True)
     Book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='BookFeedback')
     is_read = models.BooleanField(default=True)
 

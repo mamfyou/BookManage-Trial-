@@ -12,9 +12,10 @@ class History(models.Model):
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
     is_renewal = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
-        return self.id
+        return self.Book.name
 
 
 class Notification(models.Model):

@@ -4,17 +4,18 @@ from django.db import models
 
 class Book(models.Model):
     name = models.CharField(max_length=100)
-    slug = models.SlugField(unique=True)
-    picture = models.ImageField(upload_to='books')
+    picture = models.URLField()
+    owner = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='owner')
+    publisher = models.CharField(max_length=100)
+    publish_date = models.DateField()
+    author = models.CharField(max_length=100)
+    translator = models.CharField(max_length=100, null=True, blank=True)
     page_count = models.PositiveIntegerField()
-    description = models.JSONField()
     volume_num = models.PositiveIntegerField()
     count = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
-    publish_date = models.DateField()
     category = models.ManyToManyField('BookCategory', related_name='bookCategory')
     wanted_to_read = models.PositiveIntegerField(default=0)
-    # owner = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='books')
 
     def __str__(self):
         return self.name
@@ -29,15 +30,20 @@ class BookCategory(models.Model):
         return self.name
 
 
-class Feedback(models.Model):
-    User = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='userFeedback')
-    rate = models.DecimalField(max_digits=2, decimal_places=1, null=True)
-    comment = models.TextField(max_length=500, null=True)
-    # created_at = models.DateTimeField(auto_now_add=True)
-    Book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='BookFeedback')
-    is_read = models.BooleanField(default=True)
+class Rate(models.Model):
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='userRate')
+    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='bookRate')
+    rate = models.PositiveIntegerField(default=3)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class Comment(models.Model):
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='userComment')
+    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='bookComment')
+    comment_text = models.TextField(max_length=500, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    like_count = models.PositiveIntegerField(default=0)
+    dislike_count = models.PositiveIntegerField(default=0)
 
     def __str__(self):
-        return self.id
-
-
+        return str(self.user) + ": " + str(self.book)

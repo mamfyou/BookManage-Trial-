@@ -6,7 +6,6 @@ from book.models import *
 class BookAdmin(admin.ModelAdmin):
     list_display = (
         'name', 'publish_date', 'page_count', 'picture')
-    prepopulated_fields = {'slug': ('name',)}
 
 
 @admin.register(BookCategory)

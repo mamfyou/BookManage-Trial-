@@ -19,17 +19,25 @@ class History(models.Model):
 
 
 class Notification(models.Model):
-    PRIORITY_CHOICES = (
-        ('U', 'Urgent'),
-        ('I', 'Important'),
-        ('N', 'Normal'),
-        ('L', 'Low'),
+    # PRIORITY_CHOICES = (
+    #     ('U', 'Urgent'),
+    #     ('I', 'Important'),
+    #     ('N', 'Normal'),
+    #     ('L', 'Low'),
+    # )
+    TYPE_CHOICES = (
+        ('BR', 'Borrow'),
+        ('RT', 'Return'),
+        ('EX', 'Extend'),
+        ('TW', 'Time Warning'),
+        ('GN', 'General'),
     )
-
+    type = models.CharField(max_length=2, choices=TYPE_CHOICES, default='GN')
     title = models.CharField(max_length=50)
     description = models.TextField(max_length=500)
     user = models.ManyToManyField(get_user_model(), related_name='userNotification')
-    priority = models.CharField(choices=PRIORITY_CHOICES, max_length=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # priority = models.CharField(choices=PRIORITY_CHOICES, max_length=1)
     is_read = models.BooleanField(default=False)
 
 

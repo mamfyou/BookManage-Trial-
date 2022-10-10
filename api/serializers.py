@@ -15,8 +15,11 @@ from panel_toolbox.models import History, Notification, Request
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = get_user_model()
-        fields = '__all__'
-        read_only_fields = ['last_login', 'date_joined']
+        fields = ['id', 'username', 'password', 'confirm_password', 'email',
+                  'first_name', 'last_name', 'telegram_id', 'phone_number']
+        write_only_fields = ['confirm_password']
+
+    confirm_password = serializers.CharField(write_only=True)
 
     def create(self, validated_data):
         user = super().create(validated_data)
@@ -31,6 +34,17 @@ class UserSerializer(serializers.ModelSerializer):
         user.set_password(user_password)
         user.save()
         return user
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['confirm_password']:
+            raise ValidationError('Passwords didn\'t match')
+        return attrs
+
+
+class UpdateDestroyCommentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Comment
+        fields = ['id', 'comment_text']
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -103,22 +117,26 @@ class BookRetrieveSerializer(serializers.ModelSerializer):
     def get_category(self):
         category = []
         x = Book.objects.get(id=self.id).category.all()
+        print(x)
         for i in x:
             category.append(i)
         print(category)
         category_set = [[], [], [], []]
+        print(len(category))
         for i in range(0, len(category)):
             if category[i].parent is not None:
+                category_set[i] += [category[i].id]
                 while category[i].parent is not None:
-                    category_set[i] += [category[i].id, category[i].parent.id]
+                    category_set[i] += [category[i].parent.id]
                     category[i] = category[i].parent
             else:
                 category_set[i] += [category[i].id]
 
-            final_set = []
-            for i in category_set:
+        final_set = []
+        for i in category_set:
+            if len(i) is not 0:
                 final_set += [[*set(i)]]
-            return final_set
+        return final_set
 
     category = SerializerMethodField(method_name='get_category')
 
@@ -345,7 +363,7 @@ class ReturnBookSerializer(serializers.Serializer):
 class PanelUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = get_user_model()
-        fields = ['id', 'first_name', 'last_name']
+        fields = ['id', 'first_name', 'last_name', 'picture']
 
 
 class MainPanelSerializer(serializers.Serializer):
@@ -354,7 +372,8 @@ class MainPanelSerializer(serializers.Serializer):
         return Notification.objects.filter(is_read=False, user__id=self.id).exists()
 
     User = PanelUserSerializer(source='*',
-                               data={'User': {'id': 'id', 'first_name': 'first_name', 'last_name': 'last_name'}})
+                               data={'User': {'id': 'id', 'first_name': 'first_name', 'last_name': 'last_name',
+                                              'picture': 'picture'}})
 
     is_unread_notif = SerializerMethodField(method_name='get_is_unread')
 
@@ -362,19 +381,21 @@ class MainPanelSerializer(serializers.Serializer):
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = get_user_model()
-        fields = ['first_name', 'last_name', 'email', 'username', 'telegram_id']
+        fields = ['first_name', 'last_name', 'email', 'username', 'telegram_id', 'picture', 'phone_number']
 
 
 class BookPanelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Book
-        fields = ['id', 'name', 'picture', 'author', 'end_date']
+        fields = ['id', 'name', 'picture', 'author', 'dead_line']
 
     def get_expire_date(self, instance):
-        history = History.objects.get(self=self.context['request'].user.id, book_id=instance.id)
+        history = History.objects.get(user_id=self.context['request'].user.id,
+                                      book_id=instance.id,
+                                      is_active=True)
         return history.end_date
 
-    end_date = SerializerMethodField(method_name='get_expire_date')
+    dead_line = SerializerMethodField(method_name='get_expire_date')
 
 
 class CommentsSerializer(serializers.ModelSerializer):
@@ -386,6 +407,61 @@ class CommentsSerializer(serializers.ModelSerializer):
 class CommentPanelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Book
-        fields = ['id', 'name', 'description', 'BookFeedback']
+        fields = ['id', 'name', 'author', 'picture', 'comment', 'comment_id']
 
-    BookFeedback = CommentsSerializer(many=True)
+    def get_comment(self, instance):
+        comment = Comment.objects.get(book_id=instance.id,
+                                      user_id=self.context['view'].kwargs['pk'])
+        return comment.comment_text
+
+    def get_comment_id(self, instance):
+        comment = Comment.objects.get(book_id=instance.id,
+                                      user_id=self.context['view'].kwargs['pk'])
+        return comment.id
+
+    comment_id = SerializerMethodField(method_name='get_comment_id')
+    comment = SerializerMethodField(method_name='get_comment')
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'description', 'is_read', 'created_at', 'type', 'book_pic']
+
+    def get_book_pic(self, instance):
+        if instance.type is 'BR':
+            history = History.objects.filter(user=self.context['request'].user,
+                                             is_active=True) \
+                .order_by('-created')[0].get()
+            return Book.objects.get(id=history.book_id).picture
+        elif instance.type is 'EX':
+            history = History.objects.filter(user=self.context['request'].user,
+                                             is_active=True, is_renewal=True) \
+                .order_by('-created')[0].get()
+            return Book.objects.get(id=history.book_id).picture
+        elif instance.type is 'RT':
+            history = History.objects.filter(user=self.context['request'].user,
+                                             is_active=False).order_by('-created')[0].get()
+            return Book.objects.get(id=history.book_id).picture
+        elif instance.type is 'TW':
+            numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+            num = 0
+            for i in numbers:
+                if instance.description.contains(i):
+                    num = i
+                    break
+            history = History.objects.filter(user=self.context['request'].user,
+                                             is_active=True,
+                                             end_date__lte=datetime.now() + timedelta(days=num)) \
+                .order_by('-created')[0].get()
+            return Book.objects.get(id=history.book_id).picture
+        else:
+            return None
+
+    book_pic = SerializerMethodField(method_name='get_book_pic')
+
+
+class LikeDislikeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Comment
+        fields = ['like_count', 'dislike_count']

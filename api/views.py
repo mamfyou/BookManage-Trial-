@@ -2,10 +2,10 @@ from django.db.models import Q
 from rest_framework import status
 from rest_framework.generics import *
 from rest_framework.response import Response
+from rest_framework.status import HTTP_201_CREATED
 from rest_framework.views import APIView
 from .serializers import *
 from .permissions import *
-from datetime import datetime, timedelta
 
 
 class BookChange(RetrieveUpdateDestroyAPIView):
@@ -14,6 +14,14 @@ class BookChange(RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Book.objects.all()
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid()
+        x = serializer.validated_data['category']
+        print(x)
+        return super().update(request, *args, **kwargs)
 
 
 class UserList(ListCreateAPIView):
@@ -35,7 +43,6 @@ class UserRetrieve(RetrieveUpdateDestroyAPIView):
 
 class BookList(ListAPIView):
     serializer_class = MainPageSerializer
-    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return Book.objects.all()[:1]
@@ -43,7 +50,6 @@ class BookList(ListAPIView):
 
 class BookSearch(ListAPIView):
     serializer_class = BookSerializer
-    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         search_param = self.request.query_params.get('s')
@@ -65,16 +71,32 @@ class BookRetrieve(RetrieveAPIView):
             return RetrieveLendedBookSerializer
         return RetrieveExistingBookSerializer
 
-    permission_classes = [IsAuthenticated]
     lookup_field = 'pk'
 
     def get_queryset(self):
         return Book.objects.all()
 
 
+class LikeDislike(APIView):
+    def post(self, request, *args, **kwargs):
+        comment_id = self.request.data.get('comment_id', None)
+        comment_obj = Comment.objects.filter(id=comment_id)
+        like = request.data.get('like', None)
+        dislike = request.data.get('dislike', None)
+        if like and dislike:
+            return Response(status=status.HTTP_400_BAD_REQUEST,
+                            data={'error': 'like and dislike can not exist at the same time'})
+        elif like == 'true':
+            comment_obj.update(like_count=F('like_count') + 1)
+            return Response(status=HTTP_201_CREATED, data={'Reaction added successfully'})
+        elif dislike == 'true':
+            comment_obj.update(dislike_count=F('dislike_count') + 1)
+            return Response(status=HTTP_201_CREATED, data={'Reaction added successfully'})
+        return Response(status=HTTP_201_CREATED, data={'Invalid Input'})
+
+
 class BorrowBook(ListCreateAPIView):
     serializer_class = BorrowBookDetailSerializer
-    permission_classes = [IsAuthenticated]
     lookup_field = 'pk'
 
     def get_queryset(self):
@@ -93,7 +115,6 @@ class BorrowBook(ListCreateAPIView):
 
 class ExtendBook(RetrieveUpdateAPIView):
     serializer_class = ExtendBookSerializer
-    permission_classes = [IsAuthenticated, IsBorrowed]
     lookup_field = 'pk'
 
     def get_object(self):
@@ -104,7 +125,6 @@ class ExtendBook(RetrieveUpdateAPIView):
 
 class ReturnBook(ListCreateAPIView):
     serializer_class = ReturnBookSerializer
-    permission_classes = [IsAuthenticated]
     lookup_field = 'pk'
     queryset = Book.objects.all()
 
@@ -117,7 +137,7 @@ class ReturnBook(ListCreateAPIView):
 
 class MainPanel(RetrieveAPIView):
     serializer_class = MainPanelSerializer
-    permission_classes = [IsAuthenticated, IsUserOrSuperUser]
+    permission_classes = [IsUserOrSuperUser]
     lookup_field = 'pk'
 
     def get_queryset(self):
@@ -126,7 +146,7 @@ class MainPanel(RetrieveAPIView):
 
 class ProfilePanel(RetrieveUpdateDestroyAPIView):
     serializer_class = ProfileSerializer
-    permission_classes = [IsAuthenticated, IsUserOrSuperUser]
+    permission_classes = [IsUserOrSuperUser]
     lookup_field = 'pk'
 
     def get_queryset(self):
@@ -135,25 +155,33 @@ class ProfilePanel(RetrieveUpdateDestroyAPIView):
 
 class BookPanel(ListAPIView):
     serializer_class = BookPanelSerializer
-    permission_classes = [IsAuthenticated, IsUserOrSuperUser]
+    permission_classes = [IsUserOrSuperUser]
     lookup_field = 'pk'
 
     def get_queryset(self):
-        return Book.objects.filter(id__gt=24, id__lt=35)
+        return Book.objects.filter(bookHistory__user_id=self.kwargs['pk'], bookHistory__is_active=True)
 
 
 class CommentPanel(ListAPIView):
     serializer_class = CommentPanelSerializer
-    permission_classes = [IsAuthenticated, IsUserOrSuperUser]
+    permission_classes = [IsUserOrSuperUser]
     lookup_field = 'pk'
 
     def get_queryset(self):
-        return Book.objects.filter(BookFeedback__User_id=self.kwargs['pk'])
+        if self.request.query_params:
+            start_date = self.request.query_params['st_date']
+            end_date = self.request.query_params['end_date']
+            return Book.objects.filter(bookComment__user_id=self.kwargs['pk'],
+                                       bookComment__comment_text__isnull=False,
+                                       bookComment__created_at__gt=start_date,
+                                       bookComment__created_at__lt=end_date)
+        return Book.objects.filter(bookComment__user_id=self.kwargs['pk'],
+                                   bookComment__comment_text__isnull=False)
 
 
 class CategoryList(ListCreateAPIView):
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated, IsAdminOrSuperuserOrReadOnly]
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
 
     def get_queryset(self):
         return BookCategory.objects.all()
@@ -161,7 +189,7 @@ class CategoryList(ListCreateAPIView):
 
 class CategoryRetrieve(RetrieveUpdateDestroyAPIView):
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated, IsAdminOrSuperuserOrReadOnly]
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
     lookup_field = 'pk'
 
     def get_queryset(self):
@@ -170,4 +198,33 @@ class CategoryRetrieve(RetrieveUpdateDestroyAPIView):
 
 class BookCreate(CreateAPIView):
     serializer_class = BookSerializer
-    permission_classes = [IsAuthenticated, IsAdminOrSuperuserOrReadOnly]
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
+
+
+class CommentRetrieve(RetrieveUpdateDestroyAPIView):
+    serializer_class = UpdateDestroyCommentSerializer
+    permission_classes = [IsTheCommenter]
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        return Comment.objects.all()
+
+
+class NotifPanel(ListAPIView):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsUserOrSuperUser]
+    lookup_field = 'pk'
+
+    def get_queryset(self):
+        if self.request.query_params:
+            if self.request.query_params.get('gn', False):
+                print('--------------')
+                return Notification.objects.filter(type='GN',
+                                                   user__id=self.kwargs['pk'])
+            elif self.request.query_params.get('pv', None):
+                return Notification.objects.filter(type__in=['BR', 'EX', 'RT', 'TW'],
+                                                   user__id=self.kwargs['pk'])
+        return Notification.objects.filter(user__id=self.kwargs['pk'])
+
+# class ReadNotif(RetrieveUpdateDestroyAPIView):
+#

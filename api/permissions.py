@@ -1,5 +1,6 @@
 from rest_framework.permissions import BasePermission, IsAuthenticated, SAFE_METHODS
 from panel_toolbox.models import History
+from book.models import Comment
 
 
 class IsAdminOrSuperuserOrReadOnly(BasePermission):
@@ -39,3 +40,9 @@ class IsBorrowed(BasePermission):
 class IsUserOrSuperUser(BasePermission):
     def has_permission(self, request, view):
         return request.user.id is view.kwargs['pk'] or request.user.is_superuser
+
+
+class IsTheCommenter(BasePermission):
+    def has_permission(self, request, view):
+        comment = Comment.objects.get(id=view.kwargs['pk'])
+        return comment.user_id is request.user.id

@@ -5,7 +5,7 @@ from book.models import *
 @admin.register(Book)
 class BookAdmin(admin.ModelAdmin):
     list_display = (
-        'name', 'publish_date', 'page_count', 'picture')
+        'id', 'name', 'publish_date', 'page_count', 'picture')
 
 
 @admin.register(BookCategory)

@@ -13,6 +13,7 @@ class History(models.Model):
     end_date = models.DateTimeField()
     is_renewal = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    is_accepted = models.BooleanField(default=False)
 
     def __str__(self):
         return str(self.book.name) + " - " + str(self.user.name)
@@ -31,13 +32,14 @@ class Notification(models.Model):
         ('EX', 'Extend'),
         ('TW', 'Time Warning'),
         ('GN', 'General'),
+        ('AV', 'Available'),
     )
     type = models.CharField(max_length=2, choices=TYPE_CHOICES, default='GN')
     title = models.CharField(max_length=50)
     description = models.TextField(max_length=500)
     user = models.ManyToManyField(get_user_model(), related_name='userNotification')
     created_at = models.DateTimeField(auto_now_add=True)
-    # priority = models.CharField(choices=PRIORITY_CHOICES, max_length=1)
+    metadata = models.TextField(null=True, blank=True, default=None)
     is_read = models.BooleanField(default=False)
 
 
@@ -54,8 +56,17 @@ class Request(models.Model):
         ('RT', 'Return'),
         ('EX', 'Extend'),
     )
+    # id = models.IntegerField(primary_key=True)
     user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE)
-    text = models.TextField()
+    book = models.ForeignKey(Book, on_delete=models.CASCADE)
+    text = models.TextField(default='')
     type = models.CharField(max_length=2, choices=TYPE_CHOICES)
     created = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
+    is_accepted = models.BooleanField(default=None, null=True)
+    metadata = models.JSONField(null=True, blank=True)
+
+
+class AvailableNotification(models.Model):
+    user = models.ManyToManyField(get_user_model(), related_name='availableNotifUser')
+    book = models.ManyToManyField(Book, related_name='availableNotifBook')

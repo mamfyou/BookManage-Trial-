@@ -11,12 +11,13 @@ urlpatterns = [
     path('panel/<int:pk>/comments/', CommentPanel.as_view(), name='panel-comments'),
     path('panel/<int:pk>/comments/<int:id>/edit/', CommentRetrieve.as_view(), name='panel-comment-update'),
     path('panel/<int:pk>/notification/', NotifPanel.as_view(), name='panel-notification'),
-    # path('panel/<int:pk>/notification/reads', NotifPanel.as_view(), name='panel-comments'),
     # Admin Panel
     path('admin/users/', UserList.as_view(), name='user-list'),
-    path('admin/users/<int:pk>/', UserRetrieve.as_view(), name='user-retrieve'),
-    path('category/', CategoryList.as_view(), name='category-list'),
-    path('category/<int:pk>/', CategoryRetrieve.as_view(), name='category-list'),
+    path('admin/requests/', ReqAdmin.as_view(), name='request-list'),
+    path('admin/requests/response/', ReqResponse.as_view(), name='request-list'),
+    path('admin/category/', CategoryList.as_view(), name='category-list'),
+    path('admin/category/<int:pk>/', CategoryRetrieve.as_view(), name='category-change'),
+    path('admin/book/create/', BookCreate.as_view(), name='book-create'),
     # search
     path('search/', BookSearch.as_view(), name='book-search'),
     # books
@@ -28,4 +29,6 @@ urlpatterns = [
     path('books/<int:pk>/borrow/', BorrowBook.as_view(), name='book-borrow'),
     path('books/<int:pk>/extend/', ExtendBook.as_view(), name='book-extend'),
     path('books/<int:pk>/return/', ReturnBook.as_view(), name='book-feedback'),
+    # Available Notification
+    path('books/<int:pk>/availnotif/', AvailableNotification.as_view(), name='book-available-notification'),
 ]

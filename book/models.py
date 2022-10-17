@@ -1,5 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from panel_toolbox.models import AvailableNotification, Notification
 
 
 class Book(models.Model):
@@ -47,3 +50,19 @@ class Comment(models.Model):
 
     def __str__(self):
         return str(self.user) + ": " + str(self.book)
+
+
+@receiver(post_save, sender=Book)
+def available_signal(sender, instance, updated, **kwargs):
+    if updated:
+        if instance.count > 0:
+            # send notification
+            if AvailableNotification.objects.filter(book=instance).exists():
+                notifications = AvailableNotification.objects.filter(book=instance)
+                for i in notifications:
+                    Notification.objects.create(
+                        user=i.user,
+                        book=i.book,
+                        type='AV',
+                        message='The book you wanted to read is available now.',
+                    )

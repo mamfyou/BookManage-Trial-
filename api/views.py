@@ -6,6 +6,7 @@ from rest_framework.status import HTTP_201_CREATED
 from rest_framework.views import APIView
 from .serializers import *
 from .permissions import *
+from panel_toolbox.models import *
 
 
 class BookChange(RetrieveUpdateDestroyAPIView):
@@ -50,14 +51,14 @@ class BookList(ListAPIView):
 
 class BookSearch(ListAPIView):
     serializer_class = BookSerializer
+    filterset_fields = ['category']
 
     def get_queryset(self):
         search_param = self.request.query_params.get('s')
         if search_param:
             return Book.objects.filter(
-                Q(name__icontains=search_param) |
-                Q(description__icontains=search_param))
-        return None
+                Q(name__icontains=search_param))
+        return Book.objects.all()
 
 
 class BookRetrieve(RetrieveAPIView):
@@ -66,7 +67,8 @@ class BookRetrieve(RetrieveAPIView):
         if History.objects.filter(
                 user_id=user.id,
                 book_id=self.kwargs['pk'],
-                is_active=True
+                is_active=True,
+                is_accepted=True,
         ).exists():
             return RetrieveLendedBookSerializer
         return RetrieveExistingBookSerializer
@@ -122,6 +124,18 @@ class ExtendBook(RetrieveUpdateAPIView):
                                    user_id=self.request.user.id,
                                    is_active=True)
 
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if getattr(instance, '_prefetched_objects_cache', None):
+            instance._prefetched_objects_cache = {}
+
+        return Response(status=201, data={'message': 'Book extension request created successfully'})
+
 
 class ReturnBook(ListCreateAPIView):
     serializer_class = ReturnBookSerializer
@@ -133,6 +147,14 @@ class ReturnBook(ListCreateAPIView):
         serializer = ReturnBookSerializer(obj, data={
             'book': {'id': self.kwargs['pk'], 'name': obj.name}}, )
         return Response(serializer.initial_data)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(data={'message': 'Request created successfully'}, status=status.HTTP_201_CREATED,
+                        headers=headers)
 
 
 class MainPanel(RetrieveAPIView):
@@ -214,17 +236,114 @@ class NotifPanel(ListAPIView):
     serializer_class = NotificationSerializer
     permission_classes = [IsUserOrSuperUser]
     lookup_field = 'pk'
+    filterset_fields = ['type']
+
+    def get_queryset(self):
+        return Notification.objects.filter(user__id=self.kwargs['pk'])
+
+
+class ReqAdmin(ListAPIView):
+    serializer_class = RequestAdminSerializer
+    permission_classes = [IsSuperUser]
+    filterset_fields = ['type']
 
     def get_queryset(self):
         if self.request.query_params:
-            if self.request.query_params.get('gn', False):
-                print('--------------')
-                return Notification.objects.filter(type='GN',
-                                                   user__id=self.kwargs['pk'])
-            elif self.request.query_params.get('pv', None):
-                return Notification.objects.filter(type__in=['BR', 'EX', 'RT', 'TW'],
-                                                   user__id=self.kwargs['pk'])
-        return Notification.objects.filter(user__id=self.kwargs['pk'])
+            start_date = self.request.query_params['st_date']
+            end_date = self.request.query_params['end_date']
+            return Request.objects.filter(created__gt=start_date,
+                                          created__lt=end_date, is_read=False)
+        return Request.objects.filter(is_read=False)
 
-# class ReadNotif(RetrieveUpdateDestroyAPIView):
-#
+
+class ReqResponse(CreateAPIView):
+
+    def post(self, request, *args, **kwargs):
+        request_id = self.request.data.get('id', None)
+        response = self.request.data.get('response', None)
+        request_obj = None
+        history_br = None
+        history_ex = None
+        history_rt = None
+        book = None
+        if request_id is not None:
+            request_obj = Request.objects.get(id=request_id)
+            book = Book.objects.get(id=request_obj.book_id)
+        if request_obj.type == 'BR':
+            history_br = History.objects.get(user_id=request.user.id,
+                                             book_id=request_obj.book_id,
+                                             is_active=True,
+                                             is_accepted=False)
+            if response == 'true':
+                request_obj.update(is_read=True)
+                history_br.update(is_accepted=True,
+                                  start_date=timezone.now(),
+                                  end_date=datetime.now() + timedelta(days=request_obj.metadata['end_date']))
+                Notification.objects.create(type='BR',
+                                            title='Borrow Response',
+                                            user_id=request.user.id,
+                                            description=f'Your Borrow Request for book {book.name} is confirmed, congratulations',
+                                            )
+                book.count -= 1
+                book.wanted_to_read += 1
+            elif response == 'false':
+                history_br.update(is_active=False)
+                request_obj.update(is_read=True)
+                Notification.objects.create(type='BR',
+                                            title='Borrow Response',
+                                            user_id=request.user.id,
+                                            description=f'Your Borrow Request for book {book.name} is declined, unfortunately',
+                                            )
+        elif request_obj.type == 'EX':
+            history_ex = History.objects.get(user_id=request.user.id,
+                                             book_id=request_obj.book_id,
+                                             is_active=True,
+                                             is_accepted=True)
+            if response == 'true':
+                request_obj.update(is_read=True)
+                history_ex.update(is_renewal=True,
+                                  end_date=F('end_date') + timedelta(days=request_obj.metadata['end_date']))
+                Notification.objects.create(
+                    type='EX',
+                    title='Extend Response',
+                    user_id=request.user.id,
+                    description=f'Your Extend Request for book {book.name} is accepted, congratulations',
+                )
+            elif response == 'false':
+                request_obj.update(is_read=True)
+                Notification.objects.create(type='EX',
+                                            title='Extend Response',
+                                            user_id=request.user.id,
+                                            description=f'Your Extend Request for book {book.name} is declined, unfortunately',
+                                            )
+        elif request_obj.type == 'RT':
+            history_rt = History.objects.get(user_id=request.user.id,
+                                             book_id=request_obj.book_id,
+                                             is_active=True,
+                                             is_accepted=True)
+            if response == 'true':
+                request_obj.update(is_read=True)
+                history_rt.update(is_active=False)
+                Notification.objects.create(type='RT',
+                                            title='Return Response',
+                                            user_id=request.user.id,
+                                            description=f'Your Return Request for book {book.name} is accepted',
+                                            )
+                book.count += 1
+
+
+class AvailableNotification(CreateAPIView):
+
+    def create(self, request, *args, **kwargs):
+        if request.data.get('book_id', None) is None:
+            raise ValidationError('Book id is None')
+        elif not Book.objects.filter(id=request.data.get('book_id', None)).exists():
+            raise ValidationError('Invalid Book id')
+        elif AvailableNotification.objects.filter(
+                book_id=request.data.get('book_id', None),
+                user_id=request.user.id).exists():
+            raise ValidationError('Notification already exists')
+        Notification.objects.create(
+            user_id=request.user.id,
+            book_id=request.data.get('book_id'),
+        )

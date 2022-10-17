@@ -90,7 +90,7 @@ INTERNAL_IPS = [
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'postgres',
+        'NAME': 'jafar_sql',
         'USER': 'postgres',
         'PASSWORD': 'Mamf20021381@',
         'HOST': 'localhost',

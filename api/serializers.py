@@ -6,10 +6,11 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import SerializerMethodField
+from rest_framework.response import Response
 
 from book.models import Book, Comment, Rate, BookCategory
 from users.models import BookUser
-from panel_toolbox.models import History, Notification, Request
+from panel_toolbox.models import History, Notification, Request, AvailableNotification
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -160,10 +161,15 @@ class RetrieveExistingBookSerializer(serializers.Serializer):
     def get_available(self):
         return Book.objects.get(id=self.id).count > 0
 
+    def get_is_available_notification(self, obj):
+        return AvailableNotification.objects.filter(user=self.context['request'].user,
+                                                    book=obj).exists()
+
     book = BookRetrieveSerializer(source='*')
     rate = SerializerMethodField(method_name='get_rate')
     comments = SerializerMethodField(method_name='get_comments')
     is_available = serializers.SerializerMethodField(method_name='get_available')
+    is_available_notification = serializers.SerializerMethodField(method_name='get_is_available_notification')
 
 
 class RetrieveLendedBookSerializer(serializers.Serializer):
@@ -177,9 +183,11 @@ class RetrieveLendedBookSerializer(serializers.Serializer):
 
     @staticmethod
     def get_comments(self):
-        comments = Comment.objects.filter(book_id=self)
-        # .order_by('-created_at')
-        return CommentSerializer(comments, many=True).data
+        comments = Comment.objects.filter(book_id=self.id)
+        print(comments)
+        if comments.exists():
+            return CommentSerializer(comments, many=True).data
+        return None
 
     @staticmethod
     def get_deadline(self):
@@ -244,10 +252,13 @@ class BorrowBookDetailSerializer(serializers.Serializer):
         History.objects.create(user_id=user.id,
                                book_id=self.context['view'].kwargs['pk'],
                                is_active=True,
+                               is_accepted=False,
                                start_date=timezone.now(),
                                end_date=datetime.now() + timedelta(days=int(validated_data.get('End_date'))))
         Request.objects.create(user_id=user.id,
                                type='BR',
+                               book_id=book.id,
+                               metadata={'end_date': validated_data.get('End_date')},
                                text=f'User {user.username} wants to borrow book {book.name}.'
                                     f'The number of available copies after borrowing this will be {book.count}!')
         return validated_data
@@ -259,7 +270,8 @@ class BorrowBookDetailSerializer(serializers.Serializer):
         already_borrowed = \
             History.objects.filter(user_id=self.context['request'].user.id,
                                    book_id=self.context['view'].kwargs['pk'],
-                                   is_active=True).exists()
+                                   is_active=True,
+                                   is_accepted=True).exists()
         if already_borrowed:
             raise ValidationError('You already borrowed this book')
         if not self.context['request'].user.is_superuser and \
@@ -267,6 +279,9 @@ class BorrowBookDetailSerializer(serializers.Serializer):
             raise ValidationError('You can not borrow more than 2 books')
         if book.count < 1:
             raise ValidationError("We don't have the book")
+        if Request.objects.filter(user_id=self.context['request'].user.id, book_id=book.id, type='BR',
+                                  is_read=False).exists():
+            raise serializers.ValidationError('You already made a request')
         return attr
 
 
@@ -275,12 +290,20 @@ class ExtendBookSerializer(serializers.Serializer):
     book = BorrowBookDetailSerializer(read_only=True)
 
     def update(self, instance, validated_data):
-        instance.end_date += timedelta(days=validated_data.get('end_date'))
-        instance.is_renewal = True
+        book = Book.objects.get(id=instance.book_id)
+        # instance.end_date += timedelta(days=validated_data.get('end_date'))
+        Request.objects.create(user_id=self.context['request'].user.id,
+                               type='EX',
+                               book_id=instance.book_id,
+                               metadata={'end_date': validated_data.get('end_date')},
+                               text=f'User {self.context["request"].user.username} wants to extend book {instance.book.name}'
+                                    f' for {validated_data.get("end_date")} days.')
         instance.save()
         return instance
 
     def validate(self, attr):
+        book = Book.objects.get(id=self.context['view'].kwargs['pk'])
+        user = get_user_model().objects.get(id=self.context['request'].user)
         already_extended = \
             History.objects.filter(user_id=self.context['request'].user.id,
                                    book_id=self.context['view'].kwargs['pk'],
@@ -288,13 +311,15 @@ class ExtendBookSerializer(serializers.Serializer):
         is_borrowed = \
             History.objects.filter(user_id=self.context['request'].user.id,
                                    book_id=self.context['view'].kwargs['pk'],
-                                   is_active=True).exists()
+                                   is_active=True, is_accepted=True).exists()
         if not is_borrowed:
             raise ValidationError('You have not borrowed this book')
         if attr.get('end_date') not in [3, 5, 7]:
             raise serializers.ValidationError('Invalid renewal date')
         if already_extended:
             raise serializers.ValidationError('You already extended this book')
+        if Request.objects.filter(user_id=user.id, book_id=book.id, type='BR', is_read=False).exists():
+            raise serializers.ValidationError('You already made a request')
         return attr
 
 
@@ -325,30 +350,42 @@ class ReturnBookSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         book_id = self.context.get('view').kwargs.get('pk')
-        user_id = self.context['request'].user.id
+        book = Book.objects.get(id=book_id)
+        user = self.context['request'].user
         if History.objects.filter(book_id=book_id,
-                                  user_id=user_id,
+                                  user_id=user.id,
                                   is_active=True).exists():
-            if not Comment.objects.filter(book_id=book_id, user_id=user_id).exists():
-                History.objects.filter(book_id=book_id,
-                                       user_id=user_id,
-                                       is_active=True).update(is_active=False)
+            if not Comment.objects.filter(book_id=book_id, user_id=user.id).exists():
+                # History.objects.filter(book_id=book_id,
+                #                        user_id=user_id,
+                #                        is_active=True).update(is_active=False)
                 Comment.objects.create(book_id=book_id,
-                                       user_id=user_id,
+                                       user_id=user.id,
                                        comment_text=validated_data.get('comment_text'))
                 Rate.objects.create(book_id=book_id,
-                                    user_id=user_id,
+                                    user_id=user.id,
                                     rate=validated_data.get('rate'))
+                Request.objects.create(
+                    user_id=self.context['request'].user.id,
+                    book_id=book_id,
+                    type='RT',
+                    metadata={'comment': validated_data.get('comment_text')},
+                    text=f'User{user.username} wants to return book {book.name}'
+                )
                 return validated_data
-            if Comment.objects.filter(book_id=book_id, user_id=user_id).exists():
-                Comment.objects.filter(book_id=book_id, user_id=user_id)[:0].update(
+            if Comment.objects.filter(book_id=book_id, user_id=user.id).exists():
+                Comment.objects.filter(book_id=book_id, user_id=user.id)[:0].update(
                     comment_text=validated_data.get('comment_text'))
-                Rate.objects.filter(book_id=book_id, user_id=user_id)[:0].update(
+                Rate.objects.filter(book_id=book_id, user_id=user.id)[:0].update(
                     rate=validated_data.get('rate'))
                 return validated_data
         return ValidationError('You did not borrow this book')
 
     def validate(self, attr):
+        book_id = self.context.get('view').kwargs.get('pk')
+        book = Book.objects.get(id=book_id)
+        user = self.context['request'].user
+        bad_words = ['fuck', 'shit']
         if attr.get('is_not_read', False) is False and (
                 (attr.get('comment_text', None) is None) or (attr.get('rate', None) is None)):
             raise serializers.ValidationError('rate and comment required')
@@ -357,6 +394,11 @@ class ReturnBookSerializer(serializers.Serializer):
             raise serializers.ValidationError('You haven\'t read the book')
         if attr.get('rate') > 5 or attr.get('rate') < 1:
             raise serializers.ValidationError('Invalid rate')
+        for i in bad_words:
+            if i in attr.get('comment_text'):
+                raise serializers.ValidationError('you can not use bad words')
+        if Request.objects.filter(user_id=user.id, book_id=book_id, type='RT', is_read=False).exists():
+            raise serializers.ValidationError('You already made a request')
         return attr
 
 
@@ -465,3 +507,45 @@ class LikeDislikeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Comment
         fields = ['like_count', 'dislike_count']
+
+
+class RequestAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Request
+        fields = ['id', 'book', 'user', 'type', 'detail']
+
+    def get_book(self, instance):
+        book = Book.objects.get(id=instance.book_id)
+        return BookSerializer(book, data={'name': book.name,
+                                          'picture': book.picture,
+                                          'author': book.author,
+                                          'publisher': book.publisher}).initial_data
+
+    def get_user(self, instance):
+        user = get_user_model().objects.get(id=instance.user_id)
+        user_name = user.first_name + ' ' + user.last_name
+        return user_name
+
+    def get_detail(self, instance):
+        book = Book.objects.get(id=instance.book_id)
+        user = self.context['request'].user
+        if instance.type == 'BR':
+            history = History.objects.get(user_id=user.id,
+                                          book_id=book.id,
+                                          is_active=True)
+            return instance.metadata['end_date']
+        elif instance.type == 'EX':
+            history = History.objects.get(user_id=user.id,
+                                          book_id=book.id,
+                                          is_accepted=True,
+                                          is_active=True)
+            return instance.metadata['end_date']
+        elif instance.type == 'RT':
+            comment = Comment.objects.get(user_id=user.id,
+                                          book_id=book.id, )
+            return comment.comment_text
+        return None
+
+    detail = SerializerMethodField(method_name='get_detail')
+    book = SerializerMethodField(method_name='get_book')
+    user = SerializerMethodField(method_name='get_user')

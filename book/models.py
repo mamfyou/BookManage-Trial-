@@ -1,6 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.db import models
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from panel_toolbox.models import AvailableNotification, Notification
 
@@ -52,7 +52,7 @@ class Comment(models.Model):
         return str(self.user) + ": " + str(self.book)
 
 
-@receiver(post_save, sender=Book)
+@receiver(pre_save, sender=Book)
 def available_signal(sender, instance, updated, **kwargs):
     if updated:
         if instance.count > 0:

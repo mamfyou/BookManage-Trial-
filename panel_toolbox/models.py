@@ -2,12 +2,12 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from book.models import Book
+# from book.models import Book
 
 
 class History(models.Model):
     user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='userHistory')
-    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name='bookHistory')
+    book = models.ForeignKey("book.Book", on_delete=models.CASCADE, related_name='bookHistory')
     created = models.DateTimeField(auto_now_add=True)
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
@@ -16,16 +16,10 @@ class History(models.Model):
     is_accepted = models.BooleanField(default=False)
 
     def __str__(self):
-        return str(self.book.name) + " - " + str(self.user.name)
+        return str(self.book.name)
 
 
 class Notification(models.Model):
-    # PRIORITY_CHOICES = (
-    #     ('U', 'Urgent'),
-    #     ('I', 'Important'),
-    #     ('N', 'Normal'),
-    #     ('L', 'Low'),
-    # )
     TYPE_CHOICES = (
         ('BR', 'Borrow'),
         ('RT', 'Return'),
@@ -37,7 +31,7 @@ class Notification(models.Model):
     type = models.CharField(max_length=2, choices=TYPE_CHOICES, default='GN')
     title = models.CharField(max_length=50)
     description = models.TextField(max_length=500)
-    user = models.ManyToManyField(get_user_model(), related_name='userNotification')
+    user = models.ForeignKey(get_user_model(), related_name='userNotification', on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     metadata = models.TextField(null=True, blank=True, default=None)
     is_read = models.BooleanField(default=False)
@@ -47,7 +41,7 @@ class BookShelf(models.Model):
     title = models.CharField(max_length=50)
     description = models.TextField(max_length=500)
     user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name='userBookShelf')
-    book = models.ManyToManyField(Book, related_name='bookBookShelf')
+    book = models.ManyToManyField("book.Book", related_name='bookBookShelf')
 
 
 class Request(models.Model):
@@ -58,7 +52,7 @@ class Request(models.Model):
     )
     # id = models.IntegerField(primary_key=True)
     user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE)
-    book = models.ForeignKey(Book, on_delete=models.CASCADE)
+    book = models.ForeignKey("book.Book", on_delete=models.CASCADE)
     text = models.TextField(default='')
     type = models.CharField(max_length=2, choices=TYPE_CHOICES)
     created = models.DateTimeField(auto_now_add=True)
@@ -69,4 +63,4 @@ class Request(models.Model):
 
 class AvailableNotification(models.Model):
     user = models.ManyToManyField(get_user_model(), related_name='availableNotifUser')
-    book = models.ManyToManyField(Book, related_name='availableNotifBook')
+    book = models.ManyToManyField("book.Book", related_name='availableNotifBook')

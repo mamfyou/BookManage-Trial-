@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from .serializers import *
 from .permissions import *
 from panel_toolbox.models import *
+from panel_toolbox.tasks import *
 
 
 class BookChange(RetrieveUpdateDestroyAPIView):
@@ -44,6 +45,7 @@ class UserRetrieve(RetrieveUpdateDestroyAPIView):
 
 class BookList(ListAPIView):
     serializer_class = MainPageSerializer
+    notify_users()
 
     def get_queryset(self):
         return Book.objects.all()[:1]
